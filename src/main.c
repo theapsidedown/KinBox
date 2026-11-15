@@ -1,9 +1,7 @@
+
 /*
- * Copyright (c) 2017 Linaro Limited
- * Copyright (c) 2018 Intel Corporation
- * Copyright (c) 2024 TOKITA Hiroshi
- *
- * SPDX-License-Identifier: Apache-2.0
+ * KinBox main.c
+ * Created by: Aps
  */
 
 #include <errno.h>
@@ -19,57 +17,34 @@ LOG_MODULE_REGISTER(main);
 #include <zephyr/drivers/spi.h>
 #include <zephyr/sys/util.h>
 
-#define STRIP_NODE		DT_ALIAS(led_strip)
-
-#if DT_NODE_HAS_PROP(DT_ALIAS(led_strip), chain_length)
-#define STRIP_NUM_PIXELS	DT_PROP(DT_ALIAS(led_strip), chain_length)
-#else
-#error Unable to determine length of LED strip
-#endif
-
-#define DELAY_TIME K_MSEC(CONFIG_SAMPLE_LED_UPDATE_DELAY)
-
-#define RGB(_r, _g, _b) { .r = (_r), .g = (_g), .b = (_b) }
-
-static const struct led_rgb colors[] = {
-	RGB(CONFIG_SAMPLE_LED_BRIGHTNESS, 0x00, 0x00), /* red */
-	RGB(0x00, CONFIG_SAMPLE_LED_BRIGHTNESS, 0x00), /* green */
-	RGB(0x00, 0x00, CONFIG_SAMPLE_LED_BRIGHTNESS), /* blue */
-};
-
-static struct led_rgb pixels[STRIP_NUM_PIXELS];
-
-static const struct device *const strip = DEVICE_DT_GET(STRIP_NODE);
+#include "kindrals.h"
 
 int main(void)
 {
-	size_t color = 0;
-	int rc;
+    LOG_INF("KinBox is running!");
+    LOG_INF("Meet your first kindral!");
 
-	if (device_is_ready(strip)) {
-		LOG_INF("Found LED strip device %s", strip->name);
-		LOG_INF("Done with blinking!");
-	} else {
-		LOG_ERR("LED strip device %s is not ready", strip->name);
-		return 0;
-	}
+    // Actually create a Kindral object in memory
+    kindral newKin;
 
-	LOG_INF("Displaying pattern on strip");
-	while (1) {
-		for (size_t cursor = 0; cursor < ARRAY_SIZE(pixels); cursor++) {
-			memset(&pixels, 0x00, sizeof(pixels));
-			memcpy(&pixels[cursor], &colors[color], sizeof(struct led_rgb));
+    // Pass its address to the initialization function
+    kindrals_init(
+        &newKin,
+        KIN_001,
+        0,
+        "Lors",
+        KIN_ABILITY_001
+    );
 
-			rc = led_strip_update_rgb(strip, pixels, STRIP_NUM_PIXELS);
-			if (rc) {
-				LOG_ERR("couldn't update strip: %d", rc);
-			}
+    LOG_INF("Kindral initialized!");
 
-			k_sleep(DELAY_TIME);
-		}
+    LOG_INF("Kindral name: %s", newKin.id.name);
+    LOG_INF("Kindral age: %d", newKin.id.age);
+    LOG_INF("Kindral ability: %d", newKin.id.ability);
+    LOG_INF("Kindral health points: %d", newKin.stats.health_points);
+    LOG_INF("Kindral exp points: %d", newKin.stats.exp_points);
+    LOG_INF("Kindral attack: %d", newKin.stats.attack);
+    LOG_INF("Kindral walker happiness: %d", newKin.walker.happiness);
 
-		color = (color + 1) % ARRAY_SIZE(colors);
-	}
-
-	return 0;
+    return 0;
 }

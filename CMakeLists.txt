@@ -3,7 +3,16 @@
 cmake_minimum_required(VERSION 3.28.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-project(led_strip)
+project(KinBox)
 
-FILE(GLOB app_sources src/*.c)
+FILE(GLOB app_sources
+    src/*.c
+    kindrals/*.c
+)
+
+
 target_sources(app PRIVATE ${app_sources})
+
+target_include_directories(app PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/includes
+)
