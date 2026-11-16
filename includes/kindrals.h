@@ -1,8 +1,32 @@
-
 #ifndef KINDRALS_H
 #define KINDRALS_H
 
 #include <stdint.h>
+#include <zephyr/random/random.h>
+
+#define KIN_NAME_LEN 20
+#define KIN_MAX_ABILITIES 4
+#define KIN_COUNT 10
+
+enum kindral_types {
+    KIN_TYPE_IGNIS,
+    KIN_TYPE_AQUA,
+    KIN_TYPE_TERRA,
+    KIN_TYPE_AERO,
+    KIN_TYPE_VITA,
+    KIN_TYPE_LUME,
+    KIN_TYPE_NOX
+};
+
+enum kindral_traits {
+    KIN_TRAIT_BEAST,
+    KIN_TRAIT_AERIAL,
+    KIN_TRAIT_AQUATIC,
+    KIN_TRAIT_INSECT,
+    KIN_TRAIT_SPECTRAL,
+    KIN_TRAIT_MYTHICAL,
+    KIN_TRAIT_CONSTRUCT
+};
 
 enum kindral_id {
     KIN_001,
@@ -31,11 +55,21 @@ enum kindral_ability {
 };
 
 typedef struct {
-    enum kindral_id kin_id;
-    int age;
-    char name[20];
+    int64_t birth_time;            // Unix epoch seconds (UTC), set once at init
+    enum kindral_id species;       // renamed from 'id'
     enum kindral_ability ability;
+    char name[KIN_NAME_LEN];
 } kin_id;
+
+typedef struct {
+    const char *species_name;
+    enum kindral_types type;
+    enum kindral_traits trait;
+    uint8_t ability_count;
+    enum kindral_ability abilities[KIN_MAX_ABILITIES];
+} kin_species;
+
+const kin_species *kindrals_species(enum kindral_id id);
 
 typedef struct {
     int health_points;
@@ -61,12 +95,8 @@ typedef struct {
 } kindral;
 
 // Initialization
-void kindrals_init(
-    kindral *kin,
-    enum kindral_id id,
-    int age,
-    const char *name,
-    enum kindral_ability ability
-);
+int kindrals_init(kindral *kin, enum kindral_id id, int64_t birth_time);
+int kindrals_set_name(kindral *kin, const char *name);
+int64_t kindrals_age_seconds(const kindral *kin, int64_t now);
 
 #endif
