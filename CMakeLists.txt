@@ -8,6 +8,7 @@ project(KinBox)
 FILE(GLOB app_sources
     src/*.c
     kindrals/*.c
+    actions/*.c
 )
 
 

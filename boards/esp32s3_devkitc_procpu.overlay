@@ -5,10 +5,57 @@
  */
 
 #include <zephyr/dt-bindings/led/led.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
 
 / {
 	aliases {
 		led-strip = &led_strip;
+	};
+
+	/*
+	 * KinBox buttons. Wire each button between the GPIO and GND;
+	 * the internal pull-up is enabled, so a press reads as logic 0.
+	 *
+	 *   D-pad UP    -> GPIO4      A (select)    -> GPIO8
+	 *   D-pad DOWN  -> GPIO5      B (open menu) -> GPIO9
+	 *   D-pad LEFT  -> GPIO6
+	 *   D-pad RIGHT -> GPIO7
+	 */
+	buttons {
+		compatible = "gpio-keys";
+		debounce-interval-ms = <30>;
+
+		btn_up: btn_up {
+			label = "D-pad Up";
+			gpios = <&gpio0 4 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_UP>;
+		};
+		btn_down: btn_down {
+			label = "D-pad Down";
+			gpios = <&gpio0 5 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_DOWN>;
+		};
+		btn_left: btn_left {
+			label = "D-pad Left";
+			gpios = <&gpio0 6 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_LEFT>;
+		};
+		btn_right: btn_right {
+			label = "D-pad Right";
+			gpios = <&gpio0 7 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_RIGHT>;
+		};
+		btn_a: btn_a {
+			label = "A (select)";
+			gpios = <&gpio0 8 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_ENTER>;
+		};
+		btn_b: btn_b {
+			label = "B (menu)";
+			gpios = <&gpio0 9 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_MENU>;
+		};
 	};
 };
 
