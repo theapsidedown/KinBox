@@ -1,0 +1,205 @@
+
+/*
+ * KinBox - ESP32-WROOM-32 / ESP32 DevKitC
+ * Zephyr board: esp32_devkitc/esp32/procpu
+ *
+ * LCD: KMR-1.8 SPI TFT, 128x160
+ * LED: WS2812 via I2S0
+ * Buttons: active-low, connected to GND
+ */
+
+#include <zephyr/dt-bindings/led/led.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+#include <zephyr/dt-bindings/pinctrl/esp32-pinctrl.h>
+
+/ {
+    aliases {
+        led-strip = &led_strip;
+        lcd-backlight = &lcd_bl;
+    };
+
+    chosen {
+        zephyr,display = &st7735r;
+    };
+
+    /*
+     * LCD backlight control.
+     * GPIO21 drives an external transistor circuit.
+     */
+    leds {
+        compatible = "gpio-leds";
+
+        lcd_bl: lcd_bl {
+            gpios = <&gpio0 21 GPIO_ACTIVE_HIGH>;
+            label = "LCD backlight";
+        };
+    };
+
+    /*
+     * KMR-1.8 SPI TFT
+     *
+     * SCL  -> GPIO18
+     * SDA  -> GPIO23
+     * CS   -> GPIO19
+     * A0   -> GPIO26
+     * RST  -> GPIO22
+     */
+    mipi_dbi {
+        compatible = "zephyr,mipi-dbi-spi";
+        spi-dev = <&spi3>;
+        dc-gpios = <&gpio0 26 GPIO_ACTIVE_HIGH>;
+        reset-gpios = <&gpio0 22 GPIO_ACTIVE_LOW>;
+        write-only;
+
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        st7735r: st7735r@0 {
+            compatible = "sitronix,st7735r";
+            reg = <0>;
+
+            mipi-max-frequency = <20000000>;
+            mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
+
+            width = <128>;
+            height = <160>;
+            x-offset = <0>;
+            y-offset = <0>;
+
+            madctl = <0x08>;
+            colmod = <0x05>;
+
+            caset = [00 00 00 7f];
+            raset = [00 00 00 9f];
+
+            vmctr1 = <0x0e>;
+            invctr = <0x07>;
+
+            pwctr1 = [a2 02 84];
+            pwctr2 = [c5];
+            pwctr3 = [0a 00];
+            pwctr4 = [8a 2a];
+            pwctr5 = [8a ee];
+
+            frmctr1 = [01 2c 2d];
+            frmctr2 = [01 2c 2d];
+            frmctr3 = [01 2c 2d 01 2c 2d];
+
+            gamctrp1 = [02 1c 07 12 37 32 29 2d 29 25 2b 39 00 01 03 10];
+            gamctrn1 = [03 1d 07 06 2e 2c 29 2d 2e 2e 37 3f 00 00 02 10];
+        };
+    };
+
+    /*
+     * KinBox buttons.
+     * All buttons connect between GPIO and GND.
+     *
+     * GPIO34/35/36/39 are input-only and require
+     * external pull-up resistors (typically 10k to 3.3V).
+     *
+     * UP     GPIO13
+     * DOWN   GPIO14
+     * LEFT   GPIO34
+     * RIGHT  GPIO35
+     * A      GPIO36
+     * B      GPIO39
+     * POWER  GPIO27
+     */
+    buttons {
+        compatible = "gpio-keys";
+        debounce-interval-ms = <30>;
+
+        btn_up: btn_up {
+            label = "D-pad Up";
+            gpios = <&gpio0 13 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+            zephyr,code = <INPUT_KEY_UP>;
+        };
+
+        btn_down: btn_down {
+            label = "D-pad Down";
+            gpios = <&gpio0 14 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+            zephyr,code = <INPUT_KEY_DOWN>;
+        };
+
+        btn_left: btn_left {
+            label = "D-pad Left";
+            gpios = <&gpio1 2 GPIO_ACTIVE_LOW>;
+            zephyr,code = <INPUT_KEY_LEFT>;
+        };
+
+        btn_right: btn_right {
+            label = "D-pad Right";
+            gpios = <&gpio1 3 GPIO_ACTIVE_LOW>;
+            zephyr,code = <INPUT_KEY_RIGHT>;
+        };
+
+        btn_a: btn_a {
+            label = "A (select)";
+            gpios = <&gpio1 4 GPIO_ACTIVE_LOW>;
+            zephyr,code = <INPUT_KEY_ENTER>;
+        };
+
+        btn_b: btn_b {
+            label = "B (menu)";
+            gpios = <&gpio1 7 GPIO_ACTIVE_LOW>;
+            zephyr,code = <INPUT_KEY_MENU>;
+        };
+
+        btn_power: btn_power {
+            label = "Power";
+            gpios = <&gpio0 27 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+            zephyr,code = <INPUT_KEY_POWER>;
+        };
+    };
+};
+
+/*
+ * SPI3 for the LCD.
+ * Hardware MISO is unused.
+ * GPIO-based CS is GPIO19.
+ */
+&pinctrl {
+    spim3_kinbox: spim3_kinbox {
+        group1 {
+            pinmux = <SPIM3_SCLK_GPIO18>,
+                     <SPIM3_MOSI_GPIO23>;
+        };
+    };
+};
+
+/* SPI2 is not used by KinBox. */
+&spi2 {
+    status = "disabled";
+};
+
+&spi3 {
+    status = "okay";
+
+    pinctrl-0 = <&spim3_kinbox>;
+    pinctrl-names = "default";
+
+    cs-gpios = <&gpio0 19 GPIO_ACTIVE_LOW>;
+};
+
+/*
+ * WS2812 LED strip via I2S0.
+ * Uses the ESP32 DevKitC default I2S0 pins:
+ * BCK GPIO32, WS GPIO33, DATA GPIO25.
+ */
+&i2s0 {
+    status = "okay";
+
+    led_strip: ws2812@0 {
+        compatible = "worldsemi,ws2812-i2s";
+        reg = <0>;
+        chain-length = <1>;
+
+        color-mapping = <LED_COLOR_ID_GREEN
+                         LED_COLOR_ID_RED
+                         LED_COLOR_ID_BLUE>;
+
+        reset-delay = <500>;
+    };
+};
