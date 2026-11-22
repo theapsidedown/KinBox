@@ -25,6 +25,8 @@ typedef struct battle_mon {
     int8_t stage[BSTAT_COUNT];
     uint8_t turns;               /* turns fought so far */
     bool survived;               /* Last Stand-style ability already used */
+    int8_t spectral_reduction[BSTAT_COUNT]; /* temporary percentage reduction */
+    uint8_t spectral_turns[BSTAT_COUNT];    /* remaining active battle turns */
 } battle_mon;
 
 enum battle_result { BATTLE_ONGOING, BATTLE_WIN_0, BATTLE_WIN_1, BATTLE_DRAW };
@@ -40,6 +42,7 @@ enum battle_event_kind {
     BEV_USED, BEV_MISS, BEV_NO_EP, BEV_DAMAGE, BEV_SUPER, BEV_RESIST,
     BEV_HEAL, BEV_EP_DRAIN, BEV_EP_GAIN, BEV_STAT, BEV_ITEM, BEV_ABILITY,
     BEV_RECOIL, BEV_FAINT, BEV_FORFEIT, BEV_SURVIVE, BEV_TIMEOUT,
+    BEV_SPECTRAL, BEV_SPECTRAL_END,
 };
 
 typedef struct {

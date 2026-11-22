@@ -4,8 +4,10 @@
 #include "battle.h"
 #include "abilities.h"
 #include "items.h"
-#include "traits.h"
 #include "types.h"
+
+#define SPECTRAL_DURATION 5
+#define SPECTRAL_ACTIVATION_PCT 25
 
 /* ------------------------------------------------------------------ */
 /* Deterministic RNG (identical on both devices)                       */
@@ -30,6 +32,8 @@ static int clampi(int v, int lo, int hi)
 /* ------------------------------------------------------------------ */
 /* Setup                                                               */
 /* ------------------------------------------------------------------ */
+static void try_spectral_effect(battle_t *b, battle_log *log, int attacker_side);
+static void tick_spectral_effects(battle_t *b, battle_log *log);
 
 void battle_mon_from_kindral(battle_mon *m, const kindral *kin)
 {
@@ -112,7 +116,11 @@ static int eff_stat(const battle_mon *m, enum battle_stat s)
 {
     int base = (s == BSTAT_ATK) ? m->atk : (s == BSTAT_DEF) ? m->def : m->spd;
 
-    return base * stage_pct(m->stage[s]) / 100;
+    int value = base * stage_pct(m->stage[s]) / 100;
+    if (m->spectral_turns[s] > 0 && m->spectral_reduction[s] > 0) {
+        value = value * (100 - m->spectral_reduction[s]) / 100;
+    }
+    return value;
 }
 
 static int eff_speed(const battle_mon *m)
@@ -160,6 +168,50 @@ static int hurt(battle_t *b, battle_log *log, int side, int dmg)
 }
 
 /* ------------------------------------------------------------------ */
+/* Spectral reduces one opposing battle stat without changing permanent stats. */
+static int spectral_reduction_pct(int level_difference)
+{
+    if (level_difference <= 0) return 5;
+    if (level_difference <= 4) return 10;
+    if (level_difference <= 9) return 15;
+    if (level_difference <= 14) return 20;
+    return 25;
+}
+
+static void try_spectral_effect(battle_t *b, battle_log *log, int attacker_side)
+{
+    battle_mon *att = &b->mon[attacker_side];
+    battle_mon *target = &b->mon[attacker_side ^ 1];
+    int eligible[BSTAT_COUNT];
+    int count = 0;
+
+    if (att->trait != KIN_TRAIT_SPECTRAL || target->hp <= 0 || att->level < target->level) return;
+    for (int stat = BSTAT_ATK; stat <= BSTAT_SPD; stat++) {
+        if (target->spectral_turns[stat] == 0) eligible[count++] = stat;
+    }
+    if (count == 0 || rng_next(b) % 100u >= SPECTRAL_ACTIVATION_PCT) return;
+
+    int stat = eligible[rng_next(b) % (uint32_t)count];
+    int reduction = spectral_reduction_pct((int)att->level - (int)target->level);
+    target->spectral_reduction[stat] = (int8_t)reduction;
+    target->spectral_turns[stat] = SPECTRAL_DURATION;
+    emit(b, log, BEV_SPECTRAL, attacker_side ^ 1, stat, reduction);
+}
+
+static void tick_spectral_effects(battle_t *b, battle_log *log)
+{
+    for (int side = 0; side < 2; side++) {
+        battle_mon *m = &b->mon[side];
+        for (int stat = 0; stat < BSTAT_COUNT; stat++) {
+            if (m->spectral_turns[stat] == 0) continue;
+            if (--m->spectral_turns[stat] == 0) {
+                m->spectral_reduction[stat] = 0;
+                emit(b, log, BEV_SPECTRAL_END, side, stat, 0);
+            }
+        }
+    }
+}
+
 /* Actions                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -184,8 +236,6 @@ static int compute_damage(battle_t *b, int s, const move_def *mv, int *eff_out)
     int eff = types_effectiveness_pct((enum kindral_types)mv->type, (enum kindral_types)def->type);
 
     dmg = dmg * eff / 100;
-    dmg = dmg * traits_matchup_pct((enum kindral_traits)att->trait,
-                                   (enum kindral_traits)def->trait) / 100;
     if (mv->type == att->type) {            /* same-type bonus */
         dmg = dmg * 120 / 100;
     }
@@ -270,6 +320,7 @@ static void do_move(battle_t *b, battle_log *log, int s, int slot)
         }
         faint_check(b, log, s ^ 1);
         faint_check(b, log, s);
+        if (dmg > 0 && foe->hp > 0) try_spectral_effect(b, log, s);
         break;
     }
     case MOVE_CAT_EP_DRAIN: {
@@ -277,6 +328,7 @@ static void do_move(battle_t *b, battle_log *log, int s, int slot)
 
         foe->ep = (int16_t)(foe->ep - lost);
         emit(b, log, BEV_EP_DRAIN, s ^ 1, id, lost);
+        if (lost > 0) try_spectral_effect(b, log, s);
         break;
     }
     case MOVE_CAT_HEAL: {
@@ -293,6 +345,7 @@ static void do_move(battle_t *b, battle_log *log, int s, int slot)
 
         t->stage[mv->stat] = (int8_t)clampi(before + mv->stages, -3, 3);
         emit(b, log, BEV_STAT, ts, mv->stat, t->stage[mv->stat] - before);
+        if (!mv->on_self && t->stage[mv->stat] != before) try_spectral_effect(b, log, s);
         break;
     }
     }
@@ -386,6 +439,8 @@ void battle_resolve_turn(battle_t *b, const battle_action act[2], battle_log *lo
         return;
     }
 
+    tick_spectral_effects(b, log);
+
     /* Turn order: priority, then speed, then a coin flip. */
     int p0 = action_priority(b, 0, act[0]);
     int p1 = action_priority(b, 1, act[1]);
@@ -460,6 +515,18 @@ uint16_t battle_hash(const battle_t *b)
         ((uint32_t)(uint8_t)b->mon[0].stage[2] << 16),
         (uint32_t)(uint8_t)b->mon[1].stage[0] | ((uint32_t)(uint8_t)b->mon[1].stage[1] << 8) |
         ((uint32_t)(uint8_t)b->mon[1].stage[2] << 16),
+        (uint32_t)(uint8_t)b->mon[0].spectral_reduction[0] |
+        ((uint32_t)(uint8_t)b->mon[0].spectral_reduction[1] << 8) |
+        ((uint32_t)(uint8_t)b->mon[0].spectral_reduction[2] << 16),
+        (uint32_t)b->mon[0].spectral_turns[0] |
+        ((uint32_t)b->mon[0].spectral_turns[1] << 8) |
+        ((uint32_t)b->mon[0].spectral_turns[2] << 16),
+        (uint32_t)(uint8_t)b->mon[1].spectral_reduction[0] |
+        ((uint32_t)(uint8_t)b->mon[1].spectral_reduction[1] << 8) |
+        ((uint32_t)(uint8_t)b->mon[1].spectral_reduction[2] << 16),
+        (uint32_t)b->mon[1].spectral_turns[0] |
+        ((uint32_t)b->mon[1].spectral_turns[1] << 8) |
+        ((uint32_t)b->mon[1].spectral_turns[2] << 16),
     };
 
     for (size_t i = 0; i < sizeof(vals) / sizeof(vals[0]); i++) {
@@ -503,6 +570,12 @@ int battle_event_text(const battle_t *b, const battle_event *e, char *buf, size_
     case BEV_FAINT:   return snprintf(buf, n, "%s fainted!", who);
     case BEV_FORFEIT: return snprintf(buf, n, "%s gave up!", who);
     case BEV_TIMEOUT: return snprintf(buf, n, "The battle drags on...");
+    case BEV_SPECTRAL:
+        return snprintf(buf, n, "%s's %s fell by %d%%!", who,
+                        e->id < BSTAT_COUNT ? stat_names[e->id] : "stat", e->val);
+    case BEV_SPECTRAL_END:
+        return snprintf(buf, n, "%s's %s returned to normal.", who,
+                        e->id < BSTAT_COUNT ? stat_names[e->id] : "stat");
     default:          return snprintf(buf, n, "...");
     }
 }

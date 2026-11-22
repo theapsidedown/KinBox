@@ -28,15 +28,14 @@ static void test_charts(void)
     }
     for (int t = 0; t < KIN_TRAIT_COUNT; t++) {
         const trait_def *td = traits_get(t);
-        CHECK(td->hp + td->atk + td->def + td->spd + td->ep == 500);
-        int up = 0, dn = 0;
-        for (int d = 0; d < KIN_TRAIT_COUNT; d++) {
-            int m = traits_matchup_pct(t, d);
-            up += m == 115; dn += m == 85;
-            /* symmetric: if A beats B, B must be at a disadvantage vs A */
-            CHECK(traits_matchup_pct(d, t) == (m == 115 ? 85 : m == 85 ? 115 : 100));
-        }
-        CHECK(up == 2 && dn == 2);
+        CHECK(td != NULL && td->name != NULL);
+        CHECK(td->primary_stat >= KIN_GROW_NONE && td->primary_stat <= KIN_GROW_EP);
+        int expected = t == KIN_TRAIT_BEAST ? KIN_GROW_ATK :
+                       t == KIN_TRAIT_AERIAL ? KIN_GROW_SPD :
+                       t == KIN_TRAIT_INSECT ? KIN_GROW_EP :
+                       t == KIN_TRAIT_VITAE ? KIN_GROW_HP :
+                       t == KIN_TRAIT_CONSTRUCT ? KIN_GROW_DEF : KIN_GROW_NONE;
+        CHECK(td->primary_stat == (enum kin_growth_stat)expected);
         for (int i = 0; i < td->learn_count; i++) CHECK(moves_get(td->learnset[i].move) != NULL);
     }
     CHECK(types_effectiveness_pct(KIN_TYPE_NONE, KIN_TYPE_NOX) == 100);
@@ -79,6 +78,17 @@ static void test_hatch_and_levels(void)
                k.stats.max_hp, k.stats.max_ep, k.stats.attack, k.stats.defense, k.stats.speed,
                kindrals_move_count(&k), k.pending.need_slot_count);
     }
+    /* Trait primary stat adds exactly +1 over the shared baseline per level. */
+    kindral beast, vitae;
+    kindrals_init(&beast, KIN_001, 0);
+    kindrals_add_exp(&beast, kindrals_exp_for_level(1));
+    CHECK(beast.stats.attack == 14); /* 10 + baseline 3 + Beast bonus 1 */
+    CHECK(beast.stats.max_hp == 48 && beast.stats.max_ep == 64);
+    kindrals_init(&vitae, KIN_002, 0);
+    kindrals_add_exp(&vitae, kindrals_exp_for_level(1));
+    CHECK(vitae.stats.max_hp == 49); /* baseline 8 + Vitae bonus 1 */
+    CHECK(vitae.stats.attack == 13 && vitae.stats.max_ep == 64);
+
     kindral k; kindrals_init(&k, KIN_001, 0);
     kindrals_add_exp(&k, 999999);
     CHECK(k.stats.level == KIN_MAX_LEVEL);
@@ -168,6 +178,106 @@ static void test_battle(void)
     }
 }
 
+static void test_spectral(void)
+{
+    kindral ka, kb;
+    make(&ka, KIN_001, 10);
+    make(&kb, KIN_002, 10);
+    battle_mon ma, mb;
+    battle_mon_from_kindral(&ma, &ka);
+    battle_mon_from_kindral(&mb, &kb);
+    ma.trait = KIN_TRAIT_SPECTRAL;
+    ma.spd = 100; /* ensure side 0 acts first, avoiding tie RNG */
+    ma.moves[0] = MOVE_SCRATCH;
+    ma.moves[1] = MOVE_HARDEN;
+    mb.moves[0] = MOVE_HARDEN;
+
+    bool activated = false;
+    battle_t bt;
+    battle_log log;
+    battle_action act[2] = { { BACT_MOVE, 0 }, { BACT_MOVE, 0 } };
+    for (uint32_t seed = 1; seed < 500 && !activated; seed++) {
+        battle_init(&bt, &ma, &mb, seed);
+        battle_resolve_turn(&bt, act, &log);
+        for (int i = 0; i < log.n; i++) {
+            if (log.ev[i].kind == BEV_SPECTRAL) {
+                activated = true;
+                CHECK(log.ev[i].val == 5); /* equal-level reduction */
+                CHECK(bt.mon[1].spectral_turns[log.ev[i].id] == 5);
+                CHECK(bt.mon[1].spectral_reduction[log.ev[i].id] == 5);
+            }
+        }
+    }
+    CHECK(activated);
+
+    /* Level advantage controls strength at every agreed threshold. */
+    const int differences[] = { 1, 4, 5, 9, 10, 14, 15 };
+    const int expected_pct[] = { 10, 10, 15, 15, 20, 20, 25 };
+    for (int d = 0; d < (int)(sizeof(differences) / sizeof(differences[0])); d++) {
+        ma.level = 20;
+        mb.level = (uint8_t)(20 - differences[d]);
+        bool found = false;
+        for (uint32_t seed = 1; seed < 500 && !found; seed++) {
+            battle_init(&bt, &ma, &mb, seed);
+            battle_resolve_turn(&bt, act, &log);
+            for (int i = 0; i < log.n; i++) {
+                if (log.ev[i].kind == BEV_SPECTRAL) {
+                    CHECK(log.ev[i].val == expected_pct[d]);
+                    found = true;
+                }
+            }
+        }
+        CHECK(found);
+    }
+    ma.level = 10;
+    mb.level = 10;
+
+    /* Each stat has its own five-round timer; the effect expires cleanly. */
+    if (activated) {
+        int affected = -1;
+        for (int i = 0; i < BSTAT_COUNT; i++) {
+            if (bt.mon[1].spectral_turns[i]) affected = i;
+        }
+        CHECK(affected >= 0);
+        uint16_t h0 = battle_hash(&bt);
+        bt.mon[1].spectral_turns[affected] = 1;
+        CHECK(battle_hash(&bt) != h0);
+        bt.mon[1].spectral_turns[affected] = 5;
+        battle_action idle[2] = { { BACT_MOVE, 1 }, { BACT_MOVE, 0 } };
+        for (int i = 0; i < 4; i++) {
+            battle_resolve_turn(&bt, idle, &log);
+            CHECK(bt.mon[1].spectral_turns[affected] == (uint8_t)(4 - i));
+        }
+        battle_resolve_turn(&bt, idle, &log);
+        CHECK(bt.mon[1].spectral_turns[affected] == 0);
+        CHECK(bt.mon[1].spectral_reduction[affected] == 0);
+    }
+
+    /* An already-affected stat cannot be selected again while its timer is active. */
+    ma.level = 10;
+    mb.level = 10;
+    battle_init(&bt, &ma, &mb, 123);
+    for (int i = 0; i < BSTAT_COUNT; i++) {
+        bt.mon[1].spectral_reduction[i] = 10;
+        bt.mon[1].spectral_turns[i] = 5;
+    }
+    battle_resolve_turn(&bt, act, &log);
+    for (int i = 0; i < log.n; i++) CHECK(log.ev[i].kind != BEV_SPECTRAL);
+
+    /* A Spectral Kindral below the target's level cannot activate the passive. */
+    ma.level = 9;
+    mb.level = 10;
+    bool wrongly_activated = false;
+    for (uint32_t seed = 1; seed < 100; seed++) {
+        battle_init(&bt, &ma, &mb, seed);
+        battle_resolve_turn(&bt, act, &log);
+        for (int i = 0; i < log.n; i++) {
+            if (log.ev[i].kind == BEV_SPECTRAL) wrongly_activated = true;
+        }
+    }
+    CHECK(!wrongly_activated);
+}
+
 static void test_battle_features(void)
 {
     kindral a, b; make(&a, KIN_001, 10); make(&b, KIN_003, 10);
@@ -248,7 +358,7 @@ int main(void)
 {
     srand(1);
     test_charts(); test_data_refs(); test_hatch_and_levels(); test_inventory();
-    test_walk(); test_battle_features(); test_battle();
+    test_walk(); test_battle_features(); test_battle(); test_spectral();
     printf(fails ? "\n%d FAILURES\n" : "\nALL TESTS PASSED\n", fails);
     return fails != 0;
 }

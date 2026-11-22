@@ -22,6 +22,7 @@
 static const kin_species species_table[KIN_COUNT] = {
     [KIN_001] = {
         .species_name = "Ignia",
+        .base_stats = { .hp = 40, .attack = 10, .defense = 10, .speed = 10, .energy = 60 },
         .type = KIN_TYPE_IGNIS,
         .trait = KIN_TRAIT_BEAST,
         .ability_count = 3,
@@ -34,8 +35,9 @@ static const kin_species species_table[KIN_COUNT] = {
     },
     [KIN_002] = {
         .species_name = "Aquis",
+        .base_stats = { .hp = 40, .attack = 10, .defense = 10, .speed = 10, .energy = 60 },
         .type = KIN_TYPE_AQUA,
-        .trait = KIN_TRAIT_AQUATIC,
+        .trait = KIN_TRAIT_VITAE,
         .ability_count = 2,
         .abilities = {KIN_ABILITY_002, KIN_ABILITY_005},
         .egg_count = 3,
@@ -46,8 +48,9 @@ static const kin_species species_table[KIN_COUNT] = {
     },
     [KIN_003] = {
         .species_name = "Vitara",
-        .type = KIN_TYPE_VITA,
-        .trait = KIN_TRAIT_BEAST,
+        .base_stats = { .hp = 40, .attack = 10, .defense = 10, .speed = 10, .energy = 60 },
+        .type = KIN_TYPE_FLORA,
+        .trait = KIN_TRAIT_VITAE,
         .ability_count = 3,
         .abilities = {KIN_ABILITY_001, KIN_ABILITY_007, KIN_ABILITY_008},
         .egg_count = 3,
@@ -89,7 +92,7 @@ enum kindral_id kindrals_random_species(void)
 /* Hatching                                                            */
 /* ------------------------------------------------------------------ */
 
-/* Level-0 stats, and the base gain per level (scaled by the trait weights). */
+/* Fallback level-0 stats for species without an explicit base profile. */
 #define START_HP      40
 #define START_EP      60
 #define START_ATK     10
@@ -119,14 +122,15 @@ int kindrals_init(kindral *kin, enum kindral_id id, int64_t birth_time)
     kin->id.ability = sp->abilities[roll];
 
     kin->stats.level = 0;
-    kin->stats.max_hp = START_HP;
-    kin->stats.max_ep = START_EP;
-    kin->stats.health_points = START_HP;
-    kin->stats.energy_points = START_EP;
+    const kin_base_stats *base = &sp->base_stats;
+    kin->stats.max_hp = base->hp ? base->hp : START_HP;
+    kin->stats.max_ep = base->energy ? base->energy : START_EP;
+    kin->stats.health_points = kin->stats.max_hp;
+    kin->stats.energy_points = kin->stats.max_ep;
     kin->stats.exp_points = 0;
-    kin->stats.attack = START_ATK;
-    kin->stats.defense = START_DEF;
-    kin->stats.speed = START_SPD;
+    kin->stats.attack = base->attack ? base->attack : START_ATK;
+    kin->stats.defense = base->defense ? base->defense : START_DEF;
+    kin->stats.speed = base->speed ? base->speed : START_SPD;
     kin->stats.friendship = 0;
 
     kin->walker.happiness = 100;
@@ -175,7 +179,7 @@ int64_t kindrals_age_seconds(const kindral *kin, int64_t now)
 /* ------------------------------------------------------------------ */
 
 static const char *const type_names[] = {
-    "Ignis", "Aqua", "Terra", "Aero", "Vita", "Lume", "Nox"
+    "Ignis", "Aqua", "Terra", "Aero", "Flora", "Lume", "Nox"
 };
 
 const char *kindrals_type_name(enum kindral_types type)
@@ -289,13 +293,6 @@ void kindrals_clear_pending(kindral *kin)
     memset(&kin->pending, 0, sizeof(kin->pending));
 }
 
-static int grow(int base, int weight_pct)
-{
-    int g = (base * weight_pct + 50) / 100;
-
-    return g < 1 ? 1 : g;
-}
-
 static void offer_move(kindral *kin, uint8_t move)
 {
     int r = kindrals_learn_move(kin, move);
@@ -314,17 +311,33 @@ static void level_up_once(kindral *kin)
 {
     const kin_species *sp = kindrals_species(kin->id.species);
     const trait_def *tr = traits_get(sp->trait);
-    int hp = grow(GAIN_HP, tr->hp);
-    int ep = grow(GAIN_EP, tr->ep);
+    int hp = GAIN_HP;
+    int ep = GAIN_EP;
+    int atk = GAIN_ATK;
+    int def = GAIN_DEF;
+    int spd = GAIN_SPD;
+
+    /* Every Kindral receives the same baseline growth. Its trait adds
+     * exactly one point to one primary stat; Spectral adds no stat growth.
+     */
+    switch (tr->primary_stat) {
+    case KIN_GROW_HP:  hp++; break;
+    case KIN_GROW_ATK: atk++; break;
+    case KIN_GROW_DEF: def++; break;
+    case KIN_GROW_SPD: spd++; break;
+    case KIN_GROW_EP:  ep++; break;
+    case KIN_GROW_NONE:
+    default: break;
+    }
 
     kin->stats.level++;
     kin->stats.max_hp += hp;
     kin->stats.max_ep += ep;
-    kin->stats.health_points += hp;       /* level-up is not a full heal */
+    kin->stats.health_points += hp; /* level-up is not a full heal */
     kin->stats.energy_points += ep;
-    kin->stats.attack  += grow(GAIN_ATK, tr->atk);
-    kin->stats.defense += grow(GAIN_DEF, tr->def);
-    kin->stats.speed   += grow(GAIN_SPD, tr->spd);
+    kin->stats.attack += atk;
+    kin->stats.defense += def;
+    kin->stats.speed += spd;
     kin->pending.levelup_to = (uint8_t)kin->stats.level;
 
     /* Species learnset first, then the trait learnset. */

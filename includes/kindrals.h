@@ -18,7 +18,7 @@ enum kindral_types {
     KIN_TYPE_AQUA,
     KIN_TYPE_TERRA,
     KIN_TYPE_AERO,
-    KIN_TYPE_VITA,
+    KIN_TYPE_FLORA,
     KIN_TYPE_LUME,
     KIN_TYPE_NOX,
     KIN_TYPE_COUNT,
@@ -28,11 +28,10 @@ enum kindral_types {
 enum kindral_traits {
     KIN_TRAIT_BEAST,
     KIN_TRAIT_AERIAL,
-    KIN_TRAIT_AQUATIC,
     KIN_TRAIT_INSECT,
-    KIN_TRAIT_SPECTRAL,
-    KIN_TRAIT_MYTHICAL,
+    KIN_TRAIT_VITAE,
     KIN_TRAIT_CONSTRUCT,
+    KIN_TRAIT_SPECTRAL,
     KIN_TRAIT_COUNT
 };
 
@@ -61,6 +60,14 @@ typedef struct {
     uint8_t move;                  /* move_id from moves.h */
 } kin_learn;
 
+typedef struct {
+    uint16_t hp;
+    uint16_t attack;
+    uint16_t defense;
+    uint16_t speed;
+    uint16_t energy;
+} kin_base_stats;
+
 #define KIN_MAX_EGG    4
 #define KIN_MAX_LEARN  8
 
@@ -74,6 +81,7 @@ typedef struct {
     uint8_t egg_moves[KIN_MAX_EGG];
     uint8_t learn_count;           /* level-up learnset */
     kin_learn learnset[KIN_MAX_LEARN];
+    kin_base_stats base_stats;
 } kin_species;
 
 const kin_species *kindrals_species(enum kindral_id id);

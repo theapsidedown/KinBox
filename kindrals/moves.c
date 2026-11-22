@@ -6,7 +6,7 @@
 #define AQ KIN_TYPE_AQUA
 #define TE KIN_TYPE_TERRA
 #define AE KIN_TYPE_AERO
-#define VI KIN_TYPE_VITA
+#define FL KIN_TYPE_FLORA
 #define LU KIN_TYPE_LUME
 #define NX KIN_TYPE_NOX
 
@@ -38,9 +38,9 @@ static const move_def table[MOVE_COUNT] = {
     [MOVE_GUST]         = DMG("Gust",         AE, 30, 100,  5),
     [MOVE_WING_SLASH]   = DMG("Wing Slash",   AE, 55,  95, 10),
 
-    [MOVE_VINE_LASH]    = DMG("Vine Lash",    VI, 40, 100,  7),
-    [MOVE_LIFE_SIPHON]  = DMG("Life Siphon",  VI, 45, 100,  9, .drain_pct = 50),
-    [MOVE_BLOOM_BURST]  = DMG("Bloom Burst",  VI, 75,  90, 16),
+    [MOVE_VINE_LASH]    = DMG("Vine Lash",    FL, 40, 100,  7),
+    [MOVE_LIFE_SIPHON]  = DMG("Life Siphon",  FL, 45, 100,  9, .drain_pct = 50),
+    [MOVE_BLOOM_BURST]  = DMG("Bloom Burst",  FL, 75,  90, 16),
 
     [MOVE_GLINT]        = DMG("Glint",        LU, 35, 100,  6),
     [MOVE_RADIANT_BEAM] = DMG("Radiant Beam", LU, 70,  90, 15),
@@ -53,7 +53,7 @@ static const move_def table[MOVE_COUNT] = {
     [MOVE_DAZZLE]       = DRAIN("Dazzle",      LU, 20, 100, 6),
     [MOVE_STATIC_SAP]   = DRAIN("Static Sap",  AE, 18, 100, 5),
 
-    [MOVE_MEND]         = HEAL("Mend",          VI, 30, 12),
+    [MOVE_MEND]         = HEAL("Mend",          FL, 30, 12),
     [MOVE_SOOTHING_MIST]= HEAL("Calm Mist", AQ, 25, 10),
 
     [MOVE_HARDEN]       = STAT("Harden",     N,  BSTAT_DEF, +1, true,  100, 5),
