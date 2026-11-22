@@ -1,21 +1,78 @@
-# Copyright (c) 2019 Nordic Semiconductor ASA
 # SPDX-License-Identifier: Apache-2.0
 
-menu "WS2812 Sample Configuration"
+menu "KinBox"
 
-config SAMPLE_LED_UPDATE_DELAY
-	int "Delay between LED updates in ms"
-	default 50
+config KINBOX_TICK_SECONDS
+	int "Seconds between care ticks (hunger, thirst, ...)"
+	default 5
 	help
-	  Delay between LED updates in ms.
+	  5 is a fast "demo" pace. A real handheld wants something like 60-300.
 
-config SAMPLE_LED_BRIGHTNESS
-	int "LED brightness"
-	default 16
-	range 1 255
+config KINBOX_SAVE_INTERVAL_S
+	int "Seconds between routine saves to flash"
+	default 300
 	help
-	  Brightness level of each LED. Defaults to a low value to make
-	  it easier to distinguish colors.
+	  Only dirty data is written, and only after the first-time setup.
+	  Important events (naming, battle end, trade, gift, power-off) save at once.
+
+config KINBOX_OFFLINE_SECS_PER_TICK
+	int "Offline catch-up: seconds of power-off that count as one care tick"
+	default 600
+
+config KINBOX_OFFLINE_MAX_TICKS
+	int "Offline catch-up: maximum ticks applied on boot"
+	default 48
+	help
+	  48 ticks x 10 min = at most 8 hours of "time passed" after a long power-off.
+
+config KINBOX_FALLBACK_OFFLINE_SECS
+	int "Without an RTC: assumed seconds spent powered off"
+	default 0
+
+config KINBOX_USE_DS3231
+	bool "Read the time from a DS3231 RTC (I2C 0x68)"
+	select I2C
+	help
+	  Also uncomment the i2c0 block in boards/esp32s3_devkitc_procpu.overlay.
+
+config KINBOX_BLE_RSSI_NEAR
+	int "Alert when another KinBox is stronger than this RSSI (dBm)"
+	default -80
+	range -100 -40
+	help
+	  Roughly: -60 = 1-2 m, -70 = ~5 m, -80 = ~10 m open air. Bodies and pockets
+	  absorb 10-15 dB, so -80 is a reasonable "people passing on the street".
+
+config KINBOX_BLE_SCAN_INTERVAL_MS
+	int "BLE scan interval (ms)"
+	default 800
+
+config KINBOX_BLE_SCAN_WINDOW_MS
+	int "BLE scan window (ms)"
+	default 200
+	help
+	  window/interval = scan duty cycle (battery vs. how fast people are noticed).
+
+config KINBOX_STEPS_SIM
+	bool "Simulate steps (menu: Walk ON/off)"
+	default y
+	help
+	  Turn off once a real pedometer is wired into steps_hw_total().
+
+config KINBOX_SCREEN_TIMEOUT_S
+	int "Screen off after this many idle seconds"
+	default 30
+
+config KINBOX_LONG_PRESS_MS
+	int "Power key hold time for power-off (ms)"
+	default 1500
+
+config KINBOX_DEEP_SLEEP
+	bool "Power-off = ESP32-S3 deep sleep, power key wakes it"
+	default y
+	help
+	  If the ESP HAL headers are not available in your Zephyr tree, disable this
+	  to get a "soft off" (screen off, BLE off, next key press reboots).
 
 endmenu
 

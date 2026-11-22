@@ -1,21 +1,19 @@
 #ifndef BUTTONS_H
 #define BUTTONS_H
 
-#include <zephyr/kernel.h>
+#include <stdbool.h>
 
 enum button {
     BTN_UP,
     BTN_DOWN,
     BTN_LEFT,
     BTN_RIGHT,
-    BTN_A,      /* select           */
-    BTN_B,      /* open menu / back */
+    BTN_A,      /* select / confirm */
+    BTN_B,      /* back / menu      */
 };
 
-/* Wait for the next button press. Returns 0 and fills *btn, or -EAGAIN on timeout. */
-int buttons_wait(enum button *btn, k_timeout_t timeout);
-
-/* Drop any presses still sitting in the queue. */
-void buttons_flush(void);
+/* Reads the A and B pins directly. True if both are held right now (boot-time
+ * factory-reset combo). Safe to call before the UI is up. */
+bool buttons_a_and_b_held(void);
 
 #endif /* BUTTONS_H */

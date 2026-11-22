@@ -7,10 +7,74 @@
 #include <zephyr/dt-bindings/led/led.h>
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
 
 / {
 	aliases {
 		led-strip = &led_strip;
+		lcd-backlight = &lcd_bl;
+	};
+
+	chosen {
+		zephyr,display = &st7735r;
+	};
+
+	/*
+	 * 1.8" 128x160 ST7735 TFT (SPI). Wiring (ESP32-S3 DevKitC N16R8; GPIO 26-37 are
+	 * taken by flash/octal PSRAM, 19/20 by USB, so these are all safe):
+	 *
+	 *   LCD  SCK -> GPIO12      LCD  CS  -> GPIO10     LCD  LED/BL -> GPIO15
+	 *   LCD  SDA(MOSI) -> GPIO11  LCD DC (A0) -> GPIO13   LCD  RESET  -> GPIO14
+	 *   LCD  VCC -> 3V3, GND -> GND  (no MISO needed: write-only)
+	 *
+	 * Power key (wake from deep sleep needs an RTC GPIO, 0-21): GPIO2 to GND.
+	 */
+	leds {
+		compatible = "gpio-leds";
+		lcd_bl: lcd_bl {
+			gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+			label = "LCD backlight";
+		};
+	};
+
+	mipi_dbi {
+		compatible = "zephyr,mipi-dbi-spi";
+		spi-dev = <&spi2>;
+		dc-gpios = <&gpio0 13 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio0 14 GPIO_ACTIVE_LOW>;
+		write-only;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		st7735r: st7735r@0 {
+			compatible = "sitronix,st7735r";
+			reg = <0>;
+			mipi-max-frequency = <20000000>;
+			mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
+			width = <128>;
+			height = <160>;
+			x-offset = <0>;
+			y-offset = <0>;
+			/* If colours look wrong/inverted or the image is shifted, tune these
+			 * for your panel's "tab" colour (black/green/red): madctl, x/y-offset,
+			 * inversion-on, rgb-is-inverted. */
+			madctl = <0x08>;
+			colmod = <0x05>;
+			caset = [00 00 00 7f];
+			raset = [00 00 00 9f];
+			vmctr1 = <0x0e>;
+			invctr = <0x07>;
+			pwctr1 = [a2 02 84];
+			pwctr2 = [c5];
+			pwctr3 = [0a 00];
+			pwctr4 = [8a 2a];
+			pwctr5 = [8a ee];
+			frmctr1 = [01 2c 2d];
+			frmctr2 = [01 2c 2d];
+			frmctr3 = [01 2c 2d 01 2c 2d];
+			gamctrp1 = [02 1c 07 12 37 32 29 2d 29 25 2b 39 00 01 03 10];
+			gamctrn1 = [03 1d 07 06 2e 2c 29 2d 2e 2e 37 3f 00 00 02 10];
+		};
 	};
 
 	/*
@@ -20,7 +84,7 @@
 	 *   D-pad UP    -> GPIO4      A (select)    -> GPIO8
 	 *   D-pad DOWN  -> GPIO5      B (open menu) -> GPIO9
 	 *   D-pad LEFT  -> GPIO6
-	 *   D-pad RIGHT -> GPIO7
+	 *   D-pad RIGHT -> GPIO7      POWER         -> GPIO2
 	 */
 	buttons {
 		compatible = "gpio-keys";
@@ -56,6 +120,11 @@
 			gpios = <&gpio0 9 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 			zephyr,code = <INPUT_KEY_MENU>;
 		};
+		btn_power: btn_power {
+			label = "Power";
+			gpios = <&gpio0 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_POWER>;
+		};
 	};
 };
 
@@ -87,6 +156,63 @@ i2s_led: &i2s0 {
 	status = "okay";
 };
 
+/* SPI2 for the LCD: SCK 12, MOSI 11, software chip-select on GPIO10. */
+&pinctrl {
+	spim2_kinbox: spim2_kinbox {
+		group1 {
+			pinmux = <SPIM2_SCLK_GPIO12>, <SPIM2_MOSI_GPIO11>;
+		};
+	};
+};
+
+&spi2 {
+	status = "okay";
+	pinctrl-0 = <&spim2_kinbox>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpio0 10 GPIO_ACTIVE_LOW>;
+};
+
+/*
+ * DS3231 RTC (optional). To use it: uncomment this block and set
+ * CONFIG_KINBOX_USE_DS3231=y.  Wiring: SDA -> GPIO16, SCL -> GPIO17, 3V3, GND.
+ *
+ * &pinctrl {
+ *	i2c0_kinbox: i2c0_kinbox {
+ *		group1 {
+ *			pinmux = <I2C0_SDA_GPIO16>, <I2C0_SCL_GPIO17>;
+ *			bias-pull-up;
+ *			drive-open-drain;
+ *			output-high;
+ *		};
+ *	};
+ * };
+ *
+ * &i2c0 {
+ *	status = "okay";
+ *	clock-frequency = <I2C_BITRATE_STANDARD>;
+ *	pinctrl-0 = <&i2c0_kinbox>;
+ *	pinctrl-names = "default";
+ * };
+ */
+
 &flash0 {
     reg = <0x0 DT_SIZE_M(16)>;
+    ranges = <0x0 0x0 DT_SIZE_M(16)>;
 };
+
+/*
+ * NVS needs a "storage_partition" (>= 2 sectors of 4 KB; 24 KB = 6 sectors is plenty).
+ * Check that your board already defines one:
+ *     grep -n storage_partition build/zephyr/zephyr.dts
+ * If it doesn't, define one in a free area (offsets below assume nothing else lives
+ * past 0x800000; adjust to your partition layout):
+ *
+ * &flash0 {
+ *	partitions {
+ *		storage_partition: partition@f00000 {
+ *			label = "storage";
+ *			reg = <0xf00000 DT_SIZE_K(24)>;
+ *		};
+ *	};
+ * };
+ */
